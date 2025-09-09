@@ -6,19 +6,19 @@ import makeWASocket, {
 import express from "express";
 
 const GROUP_JID = "120363421029213526@g.us"; // ✅ Your WhatsApp group JID
+const PAIR_NUMBER = process.env.PAIR_NUMBER || null;
+
+let sock; // global socket
 
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState("auth_info");
   const { version } = await fetchLatestBaileysVersion();
 
-  const sock = makeWASocket({
+  sock = makeWASocket({
     version,
     auth: state,
-    printQRInTerminal: false, // ❌ disable QR (we will use pairing code)
+    printQRInTerminal: false,
   });
-
-  // ✅ Pairing Code Setup
-  const PAIR_NUMBER = process.env.PAIR_NUMBER || null;
 
   sock.ev.on("connection.update", async (update) => {
     const { connection } = update;
@@ -28,28 +28,22 @@ async function startBot() {
     }
 
     if (connection === "close") {
-      console.log("❌ Connection closed. Retrying...");
-      startBot();
+      console.log("❌ Connection closed. Retrying in 5s...");
+      setTimeout(startBot, 5000);
     }
 
-    // Generate pairing code only if fresh login
     if (update.qr && PAIR_NUMBER) {
       try {
         let code = await sock.requestPairingCode(PAIR_NUMBER);
         console.log(
-          `📌 Pairing Code for ${PAIR_NUMBER}: ${code}\n👉 Use this in WhatsApp: Linked Devices → Link with phone number`
+          `📌 Pairing Code for ${PAIR_NUMBER}: ${code}\n👉 WhatsApp → Linked Devices → Link with phone number`
         );
       } catch (err) {
         console.error("❌ Failed to generate pairing code:", err);
       }
-    } else if (update.qr && !PAIR_NUMBER) {
-      console.log(
-        "⚠️ No PAIR_NUMBER set in env. Please add PAIR_NUMBER in Render environment variables."
-      );
     }
   });
 
-  // ✅ Save session
   sock.ev.on("creds.update", saveCreds);
 
   // ✅ Command: .jid
@@ -67,29 +61,33 @@ async function startBot() {
       await sock.sendMessage(from, { text: `🆔 JID: ${from}` });
     }
   });
-
-  // ✅ Express API
-  const app = express();
-  app.use(express.json());
-
-  app.post("/send", async (req, res) => {
-    try {
-      const { message } = req.body;
-      if (!message) {
-        return res.status(400).json({ error: "message is required" });
-      }
-      await sock.sendMessage(GROUP_JID, { text: message });
-      return res.json({ success: true, sent: message });
-    } catch (err) {
-      console.error("Send error:", err);
-      return res.status(500).json({ error: "Failed to send message" });
-    }
-  });
-
-  const PORT = process.env.PORT || 5000;
-  app.listen(PORT, () => {
-    console.log(`🚀 WhatsApp Forwarder API running on port ${PORT}`);
-  });
 }
 
+// ✅ Start WhatsApp Bot
 startBot();
+
+// ✅ Express API (sirf ek dafa start hoga)
+const app = express();
+app.use(express.json());
+
+app.post("/send", async (req, res) => {
+  try {
+    const { message } = req.body;
+    if (!message) {
+      return res.status(400).json({ error: "message is required" });
+    }
+    if (!sock) {
+      return res.status(500).json({ error: "WhatsApp not connected" });
+    }
+    await sock.sendMessage(GROUP_JID, { text: message });
+    return res.json({ success: true, sent: message });
+  } catch (err) {
+    console.error("Send error:", err);
+    return res.status(500).json({ error: "Failed to send message" });
+  }
+});
+
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`🚀 WhatsApp Forwarder API running on port ${PORT}`);
+});
