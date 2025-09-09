@@ -1,0 +1,10 @@
+{
+  "name": "whatsapp-forwarder",
+  "version": "1.0.0",
+  "main": "index.js",
+  "type": "module",
+  "dependencies": {
+    "@whiskeysockets/baileys": "^6.7.8",
+    "express": "^4.18.2"
+  }
+}
