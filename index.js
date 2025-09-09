@@ -23,7 +23,7 @@ async function connectToWhatsApp() {
 
 app.post("/send", async (req, res) => {
     const text = req.body.text
-    const groupJid = "1203630xxxxx-123456@g.us" // ⚡ Apna WhatsApp group JID daalo
+    const groupJid = "120363421029213526@g.us" // ⚡ Apna WhatsApp group JID daalo
 
     try {
         await sock.sendMessage(groupJid, { text })
