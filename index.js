@@ -1,27 +1,51 @@
 // index.js
-import makeWASocket, { useMultiFileAuthState } from "@whiskeysockets/baileys";
-import qrcode from "qrcode-terminal";
+import makeWASocket, {
+  useMultiFileAuthState,
+  fetchLatestBaileysVersion,
+} from "@whiskeysockets/baileys";
 import express from "express";
 
 const GROUP_JID = "120363421029213526@g.us"; // ✅ Your WhatsApp group JID
 
 async function startBot() {
   const { state, saveCreds } = await useMultiFileAuthState("auth_info");
+  const { version } = await fetchLatestBaileysVersion();
 
   const sock = makeWASocket({
+    version,
     auth: state,
-    printQRInTerminal: false,
+    printQRInTerminal: false, // ❌ disable QR (we will use pairing code)
   });
 
-  // ✅ Handle QR Code
-  sock.ev.on("connection.update", (update) => {
-    const { connection, qr } = update;
-    if (qr) {
-      console.log("📌 Scan this QR Code with WhatsApp:");
-      qrcode.generate(qr, { small: true });
-    }
+  // ✅ Pairing Code Setup
+  const PAIR_NUMBER = process.env.PAIR_NUMBER || null;
+
+  sock.ev.on("connection.update", async (update) => {
+    const { connection } = update;
+
     if (connection === "open") {
       console.log("✅ WhatsApp Connected Successfully!");
+    }
+
+    if (connection === "close") {
+      console.log("❌ Connection closed. Retrying...");
+      startBot();
+    }
+
+    // Generate pairing code only if fresh login
+    if (update.qr && PAIR_NUMBER) {
+      try {
+        let code = await sock.requestPairingCode(PAIR_NUMBER);
+        console.log(
+          `📌 Pairing Code for ${PAIR_NUMBER}: ${code}\n👉 Use this in WhatsApp: Linked Devices → Link with phone number`
+        );
+      } catch (err) {
+        console.error("❌ Failed to generate pairing code:", err);
+      }
+    } else if (update.qr && !PAIR_NUMBER) {
+      console.log(
+        "⚠️ No PAIR_NUMBER set in env. Please add PAIR_NUMBER in Render environment variables."
+      );
     }
   });
 
@@ -48,7 +72,6 @@ async function startBot() {
   const app = express();
   app.use(express.json());
 
-  // POST /send → Always forward to your group
   app.post("/send", async (req, res) => {
     try {
       const { message } = req.body;
@@ -63,7 +86,6 @@ async function startBot() {
     }
   });
 
-  // ✅ Start API server
   const PORT = process.env.PORT || 5000;
   app.listen(PORT, () => {
     console.log(`🚀 WhatsApp Forwarder API running on port ${PORT}`);
